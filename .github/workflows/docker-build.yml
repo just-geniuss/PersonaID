@@ -21,6 +21,9 @@ on:
       - '.github/workflows/docker-build.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   validate-compose-files:
     name: Validate Docker Compose Files
