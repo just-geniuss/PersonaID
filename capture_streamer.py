@@ -128,6 +128,56 @@ def fromPGZdata(connection):
     return zjson, milliseconds
 
 
+def init_camera(camera_index=0, width=10000, height=10000):
+    """Initialize camera with proper backend and fallback mechanisms"""
+    # Try with DirectShow backend first (Windows/OBS compatibility)
+    backends = [
+        (cv2.CAP_DSHOW, "DirectShow"),
+        (cv2.CAP_MSMF, "Media Foundation"),
+        (cv2.CAP_ANY, "Any available")
+    ]
+    
+    camera_indices = [camera_index, 0, 1, 2]  # Try specified index first, then common defaults
+    
+    cap = None
+    for backend_id, backend_name in backends:
+        for cam_idx in camera_indices:
+            try:
+                print(f"Trying camera {cam_idx} with {backend_name} backend...")
+                test_cap = cv2.VideoCapture(cam_idx, backend_id)
+                if test_cap.isOpened():
+                    # Test if we can actually read a frame
+                    ret, frame = test_cap.read()
+                    if ret and frame is not None:
+                        cap = test_cap
+                        print(f"Successfully opened camera {cam_idx} with {backend_name} backend")
+                        break
+                    else:
+                        test_cap.release()
+                else:
+                    test_cap.release()
+            except Exception as e:
+                print(f"Failed to open camera {cam_idx} with {backend_name}: {e}")
+                if test_cap is not None:
+                    test_cap.release()
+        if cap is not None:
+            break
+    
+    if cap is None or not cap.isOpened():
+        raise RuntimeError("Cannot open any camera. Please check camera connection and permissions.")
+    
+    # Set resolution
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"Camera resolution: {actual_width}x{actual_height}")
+    
+    return cap, actual_width, actual_height
+
+
 if __name__ == '__main__':
     connection = psycopg2.connect(user="personauser", password="pgpwd4persona", host="127.0.0.1", port="5432",
                                   database="personadb")
@@ -139,25 +189,15 @@ if __name__ == '__main__':
     WIDTH = HIGH_VALUE
     HEIGHT = HIGH_VALUE
 
-    cap = cv2.VideoCapture(1)
-    # cap = cv2.VideoCapture(2)
-    # cap = cv2.VideoCapture("d:\\test1_5mp.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(width, height)
+    # Initialize camera with proper error handling and backend selection
+    # Change camera_index parameter to use a different camera (0, 1, 2, etc.)
+    cap, width, height = init_camera(camera_index=0, width=WIDTH, height=HEIGHT)
 
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.1.65:554/ISAPI/Streaming/Channels/101")
     # cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.88.23:554/ISAPI/Streaming/Channels/1")
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.88.25:554/ISAPI/Streaming/Channels/1")
     # cap = cv2.VideoCapture("d:\\test1.mp4")
-
-    if not cap.isOpened():
-        print("Cannot open camera")
-        exit()
 
     with pyvirtualcam.Camera(width=990, height=540, fps=30, fmt=PixelFormat.BGR) as cam:
         sframe = []
