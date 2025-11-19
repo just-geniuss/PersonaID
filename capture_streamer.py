@@ -12,6 +12,16 @@ import mediapipe as mp
 import zdata as zd
 import random
 
+# Import camera configuration
+try:
+    from camera_config import CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT, VERBOSE_LOGGING
+except ImportError:
+    # Default values if config file is not available
+    CAMERA_INDEX = 0
+    CAMERA_WIDTH = 10000
+    CAMERA_HEIGHT = 10000
+    VERBOSE_LOGGING = True
+
 
 def DrawFPS(img, fps):
     cv2.putText(img, f'FPS: {int(fps)}', (20, 70), cv2.FONT_HERSHEY_PLAIN, 3, (0, 255, 0), 2)
@@ -128,6 +138,60 @@ def fromPGZdata(connection):
     return zjson, milliseconds
 
 
+def init_camera(camera_index=0, width=10000, height=10000, verbose=True):
+    """Initialize camera with proper backend and fallback mechanisms"""
+    # Try with DirectShow backend first (Windows/OBS compatibility)
+    backends = [
+        (cv2.CAP_DSHOW, "DirectShow"),
+        (cv2.CAP_MSMF, "Media Foundation"),
+        (cv2.CAP_ANY, "Any available")
+    ]
+    
+    camera_indices = [camera_index, 0, 1, 2]  # Try specified index first, then common defaults
+    
+    cap = None
+    for backend_id, backend_name in backends:
+        for cam_idx in camera_indices:
+            try:
+                if verbose:
+                    print(f"Trying camera {cam_idx} with {backend_name} backend...")
+                test_cap = cv2.VideoCapture(cam_idx, backend_id)
+                if test_cap.isOpened():
+                    # Test if we can actually read a frame
+                    ret, frame = test_cap.read()
+                    if ret and frame is not None:
+                        cap = test_cap
+                        if verbose:
+                            print(f"Successfully opened camera {cam_idx} with {backend_name} backend")
+                        break
+                    else:
+                        test_cap.release()
+                else:
+                    test_cap.release()
+            except Exception as e:
+                if verbose:
+                    print(f"Failed to open camera {cam_idx} with {backend_name}: {e}")
+                if test_cap is not None:
+                    test_cap.release()
+        if cap is not None:
+            break
+    
+    if cap is None or not cap.isOpened():
+        raise RuntimeError("Cannot open any camera. Please check camera connection and permissions.")
+    
+    # Set resolution
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if verbose:
+        print(f"Camera resolution: {actual_width}x{actual_height}")
+    
+    return cap, actual_width, actual_height
+
+
 if __name__ == '__main__':
     connection = psycopg2.connect(user="personauser", password="pgpwd4persona", host="127.0.0.1", port="5432",
                                   database="personadb")
@@ -135,29 +199,16 @@ if __name__ == '__main__':
     emb = zd.getEmb()
     lifeTime = 1000 * 5
     number_of_processing_frame = 7
-    HIGH_VALUE = 10000
-    WIDTH = HIGH_VALUE
-    HEIGHT = HIGH_VALUE
 
-    cap = cv2.VideoCapture(1)
-    # cap = cv2.VideoCapture(2)
-    # cap = cv2.VideoCapture("d:\\test1_5mp.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(width, height)
+    # Initialize camera with configuration from camera_config.py
+    # You can modify camera_config.py to change camera settings
+    cap, width, height = init_camera(camera_index=CAMERA_INDEX, width=CAMERA_WIDTH, height=CAMERA_HEIGHT, verbose=VERBOSE_LOGGING)
 
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.1.65:554/ISAPI/Streaming/Channels/101")
     # cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.88.23:554/ISAPI/Streaming/Channels/1")
     # cap = cv2.VideoCapture("rtsp://admin:FreePAS12@192.168.88.25:554/ISAPI/Streaming/Channels/1")
     # cap = cv2.VideoCapture("d:\\test1.mp4")
-
-    if not cap.isOpened():
-        print("Cannot open camera")
-        exit()
 
     with pyvirtualcam.Camera(width=990, height=540, fps=30, fmt=PixelFormat.BGR) as cam:
         sframe = []
